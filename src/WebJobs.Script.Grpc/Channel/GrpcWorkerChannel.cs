@@ -50,6 +50,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         private readonly object _syncLock = new object();
         private readonly Dictionary<MsgType, Queue<PendingItem>> _pendingActions = new ();
         private readonly ChannelWriter<OutboundGrpcEvent> _outbound;
+        private readonly ChannelReader<InboundGrpcEvent> _inbound;
 
         private IDisposable _functionLoadRequestResponseEvent;
         private bool _disposed;
@@ -113,7 +114,8 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             }
             if (_eventManager.TryGetDedicatedChannelFor<InboundGrpcEvent>(_workerId, out var inbound))
             {
-                _ = ProcessInbound(inbound.Reader);
+                _inbound = inbound.Reader;
+                _ = ProcessInbound();
             }
 
             _eventSubscriptions.Add(_eventManager.OfType<FileEvent>()
@@ -215,15 +217,24 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             }
         }
 
-        private async Task ProcessInbound(ChannelReader<InboundGrpcEvent> source)
+        private async Task ProcessInbound()
         {
             try
             {
                 await Task.Yield(); // free up the caller
-                while (await source.WaitToReadAsync())
+                bool debug = _workerChannelLogger.IsEnabled(LogLevel.Debug);
+                if (debug)
                 {
-                    while (source.TryRead(out var msg))
+                    _workerChannelLogger.LogDebug("[channel] processing reader loop for worker {0}:", _workerId);
+                }
+                while (await _inbound.WaitToReadAsync())
+                {
+                    while (_inbound.TryRead(out var msg))
                     {
+                        if (debug)
+                        {
+                            _workerChannelLogger.LogDebug("[channel] received {0}: {1}", msg.WorkerId, msg.MessageType);
+                        }
                         ThreadPool.QueueUserWorkItem(_processInbound, msg);
                     }
                 }
@@ -982,6 +993,9 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                     {
                         sub.Dispose();
                     }
+
+                    // shut down the channels
+                    _outbound?.TryComplete();
                 }
                 _disposed = true;
             }

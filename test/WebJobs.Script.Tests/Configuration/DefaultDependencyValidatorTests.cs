@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Azure.WebJobs.Script.Diagnostics;
@@ -150,6 +151,12 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Configuration
             public IDisposable Subscribe(IObserver<ScriptEvent> observer)
             {
                 return null;
+            }
+
+            public bool TryGetDedicatedChannelFor<T>(string workerId, out Channel<T> channel) where T : ScriptEvent
+            {
+                channel = null;
+                return false;
             }
         }
 

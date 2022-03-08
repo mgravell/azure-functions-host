@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs.Script.Eventing;
 using Microsoft.Azure.WebJobs.Script.Workers.Rpc;
@@ -73,6 +74,9 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
             }
 
             public void Dispose() => ((IDisposable)_scriptEventManager).Dispose();
+
+            public bool TryGetDedicatedChannelFor<T>(string workerId, out Channel<T> channel) where T : ScriptEvent
+                => _scriptEventManager.TryGetDedicatedChannelFor(workerId, out channel); // this won't apply WaitBeforePublish
         }
     }
 }

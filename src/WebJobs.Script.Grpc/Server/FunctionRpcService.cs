@@ -38,6 +38,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             var cancelSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var cts = CancellationTokenSource.CreateLinkedTokenSource(context.CancellationToken);
             CancellationTokenRegistration ctr = cts.Token.Register(static state => ((TaskCompletionSource<bool>)state).TrySetResult(false), cancelSource);
+            Channel<InboundGrpcEvent> inbound = null;
             try
             {
                 static Task<Task<bool>> MoveNextAsync(IAsyncStreamReader<StreamingMessage> requestStream, TaskCompletionSource<bool> cancelSource)
@@ -63,7 +64,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                                 _ = RegisterWorker(workerId, responseStream, outbound.Reader, cts.Token);
                             }
 
-                            if (_eventManager.TryGetDedicatedChannelFor<InboundGrpcEvent>(workerId, out var inbound))
+                            if (_eventManager.TryGetDedicatedChannelFor<InboundGrpcEvent>(workerId, out inbound))
                             {
                                 while (await await MoveNextAsync(requestStream, cancelSource))
                                 {
@@ -79,6 +80,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                                     }
                                     currentMessage = null; // allow old messages to be collected while we wait
                                 }
+                                inbound.Writer.TryComplete();
                             }
                         }
                     }
@@ -88,6 +90,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             {
                 // We catch the exception, just to report it, then re-throw it
                 _logger.LogError(rpcException, "Exception encountered while listening to EventStream");
+                inbound?.Writer?.TryComplete(rpcException);
                 throw;
             }
             finally
