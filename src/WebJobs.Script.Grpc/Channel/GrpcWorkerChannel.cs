@@ -135,28 +135,36 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
 
         private void ProcessItem(InboundGrpcEvent msg)
         {
-            switch (msg.MessageType)
+            // note this is a QUWI entry-point
+            try
             {
-                case MsgType.RpcLog:
-                    switch (msg.Message.RpcLog.LogCategory)
-                    {
-                        case RpcLogCategory.System:
-                            SystemLog(msg);
-                            break;
-                        default:
-                            Log(msg);
-                            break;
-                    }
-                    break;
-                case MsgType.WorkerStatusResponse:
-                    ReceiveWorkerStatusResponse(msg.Message.RequestId, msg.Message.WorkerStatusResponse);
-                    break;
-                case MsgType.InvocationResponse:
-                    _ = InvokeResponse(msg.Message.InvocationResponse);
-                    break;
-                default:
-                    OnNext(msg);
-                    break;
+                switch (msg.MessageType)
+                {
+                    case MsgType.RpcLog:
+                        switch (msg.Message.RpcLog.LogCategory)
+                        {
+                            case RpcLogCategory.System:
+                                SystemLog(msg);
+                                break;
+                            default:
+                                Log(msg);
+                                break;
+                        }
+                        break;
+                    case MsgType.WorkerStatusResponse:
+                        ReceiveWorkerStatusResponse(msg.Message.RequestId, msg.Message.WorkerStatusResponse);
+                        break;
+                    case MsgType.InvocationResponse:
+                        _ = InvokeResponse(msg.Message.InvocationResponse);
+                        break;
+                    default:
+                        OnNext(msg);
+                        break;
+                }
+            }
+            catch
+            {
+                // TODO: log?
             }
         }
 
@@ -236,9 +244,9 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // log ???
+                _workerChannelLogger.LogError(ex, "Error processing inbound messages");
             }
             finally
             {

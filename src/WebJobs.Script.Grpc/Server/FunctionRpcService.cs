@@ -58,9 +58,10 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                         {
                             if (_eventManager.TryGetGrpcChannels(workerId, out var inbound, out var outbound))
                             {
-                                // register this worker and listen for replies
-                                _ = RegisterWorker(workerId, responseStream, outbound.Reader, cts.Token);
+                                // send work
+                                _ = PushFromOutboundToGrpc(workerId, responseStream, outbound.Reader, cts.Token);
 
+                                // this loop is "pull from gRPC and push to inbound"
                                 do
                                 {
                                     currentMessage = requestStream.Current;
@@ -97,11 +98,11 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             }
         }
 
-        private async Task RegisterWorker(string workerId, IServerStreamWriter<StreamingMessage> responseStream, ChannelReader<OutboundGrpcEvent> source, CancellationToken cancellationToken)
+        private async Task PushFromOutboundToGrpc(string workerId, IServerStreamWriter<StreamingMessage> responseStream, ChannelReader<OutboundGrpcEvent> source, CancellationToken cancellationToken)
         {
-            _logger.LogDebug("Established RPC channel. WorkerId: {workerId}", workerId);
             try
             {
+                _logger.LogDebug("Established RPC channel. WorkerId: {workerId}", workerId);
                 await Task.Yield(); // free up the caller
                 while (await source.WaitToReadAsync(cancellationToken))
                 {
@@ -122,9 +123,13 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                     }
                 }
             }
-            catch
+            catch (OperationCanceledException oce) when (oce.CancellationToken == cancellationToken)
             {
-                // do something
+                // that's fine; normaly exit through cancellation
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error pushing from outbound to gRPC");
             }
         }
     }
