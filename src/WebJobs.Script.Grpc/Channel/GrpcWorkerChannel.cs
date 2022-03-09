@@ -5,7 +5,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Reactive.Linq;
@@ -13,7 +13,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using System.Threading.Tasks.Dataflow;
 using Microsoft.Azure.WebJobs.Logging;
 using Microsoft.Azure.WebJobs.Script.Description;
 using Microsoft.Azure.WebJobs.Script.Diagnostics;
@@ -27,8 +26,6 @@ using Microsoft.Azure.WebJobs.Script.Workers.Rpc;
 using Microsoft.Azure.WebJobs.Script.Workers.SharedMemoryDataTransfer;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Newtonsoft.Json.Linq;
-using NuGet.Protocol.Plugins;
 using static Microsoft.Azure.WebJobs.Script.Grpc.Messages.RpcLog.Types;
 using FunctionMetadata = Microsoft.Azure.WebJobs.Script.Description.FunctionMetadata;
 using MsgType = Microsoft.Azure.WebJobs.Script.Grpc.Messages.StreamingMessage.ContentOneofCase;
@@ -61,12 +58,11 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         private IDictionary<string, Exception> _functionLoadErrors = new Dictionary<string, Exception>();
         private IDictionary<string, Exception> _metadataRequestErrors = new Dictionary<string, Exception>();
         private ConcurrentDictionary<string, ScriptInvocationContext> _executingInvocations = new ConcurrentDictionary<string, ScriptInvocationContext>();
-        private IDictionary<string, BufferBlock<ScriptInvocationContext>> _functionInputBuffers = new ConcurrentDictionary<string, BufferBlock<ScriptInvocationContext>>();
+        private ConcurrentDictionary<string, InvocationBuffer> _functionBuffers = new ConcurrentDictionary<string, InvocationBuffer>(); // null means "go direct, no buffer"; not-null means: buffer; not found means "think"
         private ConcurrentDictionary<string, TaskCompletionSource<bool>> _workerStatusRequests = new ConcurrentDictionary<string, TaskCompletionSource<bool>>();
-        private List<IDisposable> _inputLinks = new List<IDisposable>();
         private List<IDisposable> _eventSubscriptions = new List<IDisposable>();
         private IDisposable _startLatencyMetric;
-        private IEnumerable<FunctionMetadata> _functions;
+        private ImmutableDictionary<string, FunctionMetadata> _functionsLookup;
         private GrpcCapabilities _workerCapabilities;
         private ILogger _workerChannelLogger;
         private IMetricsLogger _metricsLogger;
@@ -127,11 +123,56 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
 
         public string Id => _workerId;
 
-        public IDictionary<string, BufferBlock<ScriptInvocationContext>> FunctionInputBuffers => _functionInputBuffers;
-
         internal IWorkerProcess WorkerProcess => _rpcWorkerProcess;
 
         internal RpcWorkerConfig Config => _workerConfig;
+
+        public bool TryPost(string functionId, ScriptInvocationContext ctx)
+        {
+            if (_functionBuffers.TryGetValue(functionId, out var buffer) || SlowTryGetBuffer(functionId, out buffer))
+            {
+                if (buffer is null)
+                {
+                    _ = SendInvocationRequest(ctx);
+                }
+                else
+                {
+                    buffer.Post(ctx);
+                }
+                return true;
+            }
+            return false;
+        }
+
+        private bool SlowTryGetBuffer(string functionId, out InvocationBuffer buffer)
+        {
+            // suboptimal case; the function may or may not exist, and there may or may not be an existing buffer
+            // for load received before the function has loaded
+            var snapshot = _functionsLookup;
+            if (snapshot is null || !snapshot.TryGetValue(functionId, out var metadata))
+            {
+                // not even known
+                buffer = null;
+                return false;
+            }
+
+            // k, so the function at least exists! double-check that we don't think a handler exists
+            if (_functionBuffers.TryGetValue(functionId, out buffer))
+            {
+                return true; // competition snuck in; great!
+            }
+
+            // we'll allocate a buffer handler, to take the in-flight load
+            buffer = new InvocationBuffer();
+
+            // now we need to see if we can swap that into the dictionary; again, we might lose the race here!
+            if (!_functionBuffers.TryAdd(functionId, buffer))
+            {
+                // we lost the race; forget about out channel (just drop it on the floor)
+                buffer = _functionBuffers[functionId]; // intentional: we expect this to work
+            }
+            return true;
+        }
 
         private void ProcessItem(InboundGrpcEvent msg)
         {
@@ -391,20 +432,17 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
 
         public void SetupFunctionInvocationBuffers(IEnumerable<FunctionMetadata> functions)
         {
-            _functions = functions;
-            foreach (FunctionMetadata metadata in functions)
-            {
-                _workerChannelLogger.LogDebug("Setting up FunctionInvocationBuffer for function: '{functionName}' with functionId: '{functionId}'", metadata.Name, metadata.GetFunctionId());
-                _functionInputBuffers[metadata.GetFunctionId()] = new BufferBlock<ScriptInvocationContext>();
-            }
+            _functionsLookup = functions.ToImmutableDictionary(x => x.GetFunctionId(), StringComparer.OrdinalIgnoreCase);
+            // we no longer set up the buffers eagerly; we can set them up lazily as they're needed
             _state = _state | RpcWorkerChannelState.InvocationBuffersInitialized;
         }
 
         public void SendFunctionLoadRequests(ManagedDependencyOptions managedDependencyOptions, TimeSpan? functionTimeout)
         {
-            if (_functions != null)
+            var snapshopt = _functionsLookup;
+            if (snapshopt is not null)
             {
-                var count = _functions.Count();
+                var count = snapshopt.Count;
                 if (functionTimeout.HasValue)
                 {
                     _functionLoadTimeout = functionTimeout.Value > _functionLoadTimeout ? functionTimeout.Value : _functionLoadTimeout;
@@ -420,17 +458,32 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
 
                 // Load Request is also sent for disabled function as it is invocable using the portal and admin endpoints
                 // Loading disabled functions at the end avoids unnecessary performance issues. Refer PR #5072 and commit #38b57883be28524fa6ee67a457fa47e96663094c
-                _functions = _functions.OrderBy(metadata => metadata.IsDisabled());
+                // (doing as two linear passes, for O(N))
+                var orderedForLoad = new List<FunctionMetadata>(count);
+                foreach (var (_, metadata) in snapshopt)
+                {
+                    if (!metadata.IsDisabled())
+                    {
+                        orderedForLoad.Add(metadata);
+                    }
+                }
+                foreach (var (_, metadata) in snapshopt)
+                {
+                    if (metadata.IsDisabled())
+                    {
+                        orderedForLoad.Add(metadata);
+                    }
+                }
 
                 // Check if the worker supports this feature
                 bool capabilityEnabled = !string.IsNullOrEmpty(_workerCapabilities.GetCapabilityState(RpcWorkerConstants.AcceptsListOfFunctionLoadRequests));
                 if (capabilityEnabled)
                 {
-                    SendFunctionLoadRequestCollection(_functions, managedDependencyOptions);
+                    SendFunctionLoadRequestCollection(orderedForLoad, managedDependencyOptions);
                 }
                 else
                 {
-                    foreach (FunctionMetadata metadata in _functions)
+                    foreach (FunctionMetadata metadata in orderedForLoad)
                     {
                         SendFunctionLoadRequest(metadata, managedDependencyOptions);
                     }
@@ -548,7 +601,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
         internal void LoadResponse(FunctionLoadResponse loadResponse)
         {
             _functionLoadRequestResponseEvent?.Dispose();
-            string functionName = _functions.SingleOrDefault(m => m.GetFunctionId().Equals(loadResponse.FunctionId, StringComparison.OrdinalIgnoreCase))?.Name;
+            var functionName = _functionsLookup.TryGetValue(loadResponse.FunctionId, out var metadata) ? metadata?.Name : null;
             _workerChannelLogger.LogDebug("Received FunctionLoadResponse for function: '{functionName}' with functionId: '{functionId}'.", functionName, loadResponse.FunctionId);
             if (loadResponse.Result.IsFailure(out Exception functionLoadEx))
             {
@@ -569,11 +622,14 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                 _workerChannelLogger?.LogDebug($"Managed dependency successfully downloaded by the {_workerConfig.Description.Language} language worker");
             }
 
-            // link the invocation inputs to the invoke call
-            var invokeBlock = new ActionBlock<ScriptInvocationContext>(async ctx => await SendInvocationRequest(ctx));
-            // associate the invocation input buffer with the function
-            var disposableLink = _functionInputBuffers[loadResponse.FunctionId].LinkTo(invokeBlock);
-            _inputLinks.Add(disposableLink);
+            // add the channel as a known handler of this function
+            if (!_functionBuffers.TryAdd(loadResponse.FunctionId, null))
+            {
+                // there appears to already be a function handler - presumably a buffer
+                var buffer = _functionBuffers.TryGetValue(loadResponse.FunctionId, out var oldValue) ? oldValue as InvocationBuffer : null;
+                _functionBuffers[loadResponse.FunctionId] = null;
+                buffer?.Flush(this);
+            }
         }
 
         internal void LoadResponse(FunctionLoadResponseCollection loadResponseCollection)
@@ -591,13 +647,14 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             try
             {
                 // do not send invocation requests for functions that failed to load or could not be indexed by the worker
-                if (_functionLoadErrors.ContainsKey(context.FunctionMetadata.GetFunctionId()))
+                var functionId = context.FunctionMetadata.GetFunctionId();
+                if (_functionLoadErrors.ContainsKey(functionId))
                 {
                     _workerChannelLogger.LogDebug($"Function {context.FunctionMetadata.Name} failed to load");
                     context.ResultSource.TrySetException(_functionLoadErrors[context.FunctionMetadata.GetFunctionId()]);
                     _executingInvocations.TryRemove(context.ExecutionContext.InvocationId.ToString(), out ScriptInvocationContext _);
                 }
-                else if (_metadataRequestErrors.ContainsKey(context.FunctionMetadata.GetFunctionId()))
+                else if (_metadataRequestErrors.ContainsKey(functionId))
                 {
                     _workerChannelLogger.LogDebug($"Worker failed to load metadata for {context.FunctionMetadata.Name}");
                     context.ResultSource.TrySetException(_metadataRequestErrors[context.FunctionMetadata.GetFunctionId()]);
@@ -995,12 +1052,6 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                     _startLatencyMetric?.Dispose();
                     _workerInitTask?.TrySetCanceled();
                     _timer?.Dispose();
-
-                    // unlink function inputs
-                    foreach (var link in _inputLinks)
-                    {
-                        link.Dispose();
-                    }
 
                     (_rpcWorkerProcess as IDisposable)?.Dispose();
 

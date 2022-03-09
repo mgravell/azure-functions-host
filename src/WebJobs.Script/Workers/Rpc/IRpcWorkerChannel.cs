@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using System.Threading.Tasks.Dataflow;
 using Microsoft.Azure.WebJobs.Script.Description;
 using Microsoft.Azure.WebJobs.Script.ManagedDependencies;
 
@@ -12,7 +11,7 @@ namespace Microsoft.Azure.WebJobs.Script.Workers.Rpc
 {
     public interface IRpcWorkerChannel : IWorkerChannel
     {
-        IDictionary<string, BufferBlock<ScriptInvocationContext>> FunctionInputBuffers { get; }
+        bool TryPost(string functionId, ScriptInvocationContext ctx);
 
         bool IsChannelReadyForInvocations();
 

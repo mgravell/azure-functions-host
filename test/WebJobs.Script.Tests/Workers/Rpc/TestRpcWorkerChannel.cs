@@ -47,9 +47,9 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
 
         public bool IsDisposed => _isDisposed;
 
-        public IDictionary<string, BufferBlock<ScriptInvocationContext>> FunctionInputBuffers => throw new NotImplementedException();
-
         public List<Task> ExecutionContexts => _executionContexts;
+
+        public bool TryPost(string functionId, ScriptInvocationContext ctx) => false;
 
         public void Dispose()
         {
