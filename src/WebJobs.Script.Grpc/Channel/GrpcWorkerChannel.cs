@@ -328,6 +328,8 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                 // can be used.
                 initRequest.Capabilities.Add(RpcWorkerConstants.FunctionDataCache, "true");
             }
+            // advertise that we support multiple streams, and hint at a number
+            initRequest.Capabilities.Add(RpcWorkerConstants.MultiStream, "5");
 
             SendStreamingMessage(new StreamingMessage
             {
