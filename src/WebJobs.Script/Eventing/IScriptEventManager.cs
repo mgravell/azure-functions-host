@@ -2,7 +2,6 @@
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
-using System.Threading.Channels;
 
 namespace Microsoft.Azure.WebJobs.Script.Eventing
 {
@@ -10,6 +9,10 @@ namespace Microsoft.Azure.WebJobs.Script.Eventing
     {
         void Publish(ScriptEvent scriptEvent);
 
-        bool TryGetDedicatedChannelFor<T>(string workerId, out Channel<T> channel) where T : ScriptEvent;
+        bool TryAddWorkerState<T>(string workerId, T state);
+
+        bool TryGetWorkerState<T>(string workerId, out T state);
+
+        bool TryRemoveWorkerState<T>(string workerId, out T state);
     }
 }

@@ -75,8 +75,14 @@ namespace Microsoft.Azure.WebJobs.Script.Tests
 
             public void Dispose() => ((IDisposable)_scriptEventManager).Dispose();
 
-            public bool TryGetDedicatedChannelFor<T>(string workerId, out Channel<T> channel) where T : ScriptEvent
-                => _scriptEventManager.TryGetDedicatedChannelFor(workerId, out channel); // this won't apply WaitBeforePublish
+            public bool TryAddWorkerState<T>(string workerId, T state)
+                => _scriptEventManager.TryAddWorkerState(workerId, state);
+
+            public bool TryGetWorkerState<T>(string workerId, out T state)
+                => _scriptEventManager.TryGetWorkerState(workerId, out state);
+
+            public bool TryRemoveWorkerState<T>(string workerId, out T state)
+                => _scriptEventManager.TryRemoveWorkerState(workerId, out state);
         }
     }
 }

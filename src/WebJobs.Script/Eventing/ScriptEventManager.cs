@@ -4,44 +4,21 @@
 using System;
 using System.Collections.Concurrent;
 using System.Reactive.Subjects;
-using System.Threading.Channels;
 
 namespace Microsoft.Azure.WebJobs.Script.Eventing
 {
     public class ScriptEventManager : IScriptEventManager, IDisposable
     {
         private readonly Subject<ScriptEvent> _subject = new Subject<ScriptEvent>();
-        private readonly ConcurrentDictionary<(string, Type), object> _dedicatedChannels = new ();
+        private readonly ConcurrentDictionary<(string, Type), object> _workerState = new ();
 
         private bool _disposed = false;
-
-        private static readonly UnboundedChannelOptions ChannelOptions = new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false,
-            AllowSynchronousContinuations = true,
-        };
 
         public void Publish(ScriptEvent scriptEvent)
         {
             ThrowIfDisposed();
 
             _subject.OnNext(scriptEvent);
-        }
-
-        public bool TryGetDedicatedChannelFor<T>(string workerId, out Channel<T> channel) where T : ScriptEvent
-        {
-            var key = (workerId, typeof(T));
-            if (!_dedicatedChannels.TryGetValue(key, out var found))
-            {
-                found = Channel.CreateUnbounded<T>(ChannelOptions);
-                if (!_dedicatedChannels.TryAdd(key, found))
-                {
-                    found = _dedicatedChannels[key];
-                }
-            }
-            channel = (Channel<T>)found;
-            return true;
         }
 
         public IDisposable Subscribe(IObserver<ScriptEvent> observer)
@@ -73,5 +50,35 @@ namespace Microsoft.Azure.WebJobs.Script.Eventing
         }
 
         public void Dispose() => Dispose(true);
+
+        bool IScriptEventManager.TryAddWorkerState<T>(string workerId, T state)
+        {
+            var key = (workerId, typeof(T));
+            return _workerState.TryAdd(key, state);
+        }
+
+        bool IScriptEventManager.TryGetWorkerState<T>(string workerId, out T state)
+        {
+            var key = (workerId, typeof(T));
+            if (_workerState.TryGetValue(key, out var tmp) && tmp is T typed)
+            {
+                state = typed;
+                return true;
+            }
+            state = default;
+            return false;
+        }
+
+        bool IScriptEventManager.TryRemoveWorkerState<T>(string workerId, out T state)
+        {
+            var key = (workerId, typeof(T));
+            if (_workerState.TryRemove(key, out var tmp) && tmp is T typed)
+            {
+                state = typed;
+                return true;
+            }
+            state = default;
+            return false;
+        }
     }
 }

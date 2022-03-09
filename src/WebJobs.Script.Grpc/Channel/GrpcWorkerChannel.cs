@@ -108,12 +108,9 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
 
             _workerCapabilities = new GrpcCapabilities(_workerChannelLogger);
 
-            if (_eventManager.TryGetDedicatedChannelFor<OutboundGrpcEvent>(_workerId, out var outbound))
+            if (eventManager.TryGetGrpcChannels(workerId, out var inbound, out var outbound))
             {
                 _outbound = outbound.Writer;
-            }
-            if (_eventManager.TryGetDedicatedChannelFor<InboundGrpcEvent>(_workerId, out var inbound))
-            {
                 _inbound = inbound.Reader;
                 _ = ProcessInbound();
             }
@@ -241,7 +238,12 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
             }
             catch
             {
-                // do something
+                // log ???
+            }
+            finally
+            {
+                // we're not listening any more! shut down the channels
+                _eventManager.RemoveGrpcChannels(_workerId);
             }
         }
 
@@ -995,7 +997,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                     }
 
                     // shut down the channels
-                    _outbound?.TryComplete();
+                    _eventManager.RemoveGrpcChannels(_workerId);
                 }
                 _disposed = true;
             }

@@ -48,6 +48,7 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                 throw new InvalidOperationException($"WorkerCofig for runtime: {runtime} not found");
             }
             string workerId = Guid.NewGuid().ToString();
+            _eventManager.AddGrpcChannels(workerId); // prepare the inbound/outbound dedicated channels
             ILogger workerLogger = _loggerFactory.CreateLogger($"Worker.LanguageWorkerChannel.{runtime}.{workerId}");
             IWorkerProcess rpcWorkerProcess = _rpcWorkerProcessFactory.Create(workerId, runtime, scriptRootPath, languageWorkerConfig);
             return new GrpcWorkerChannel(

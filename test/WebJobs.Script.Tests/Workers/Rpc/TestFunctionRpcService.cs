@@ -38,12 +38,9 @@ namespace Microsoft.Azure.WebJobs.Script.Tests.Workers.Rpc
             _eventManager = eventManager;
             _logger = logger;
             _workerId = workerId;
-            if (_eventManager.TryGetDedicatedChannelFor<OutboundGrpcEvent>(workerId, out var outbound))
+            if (eventManager.TryGetGrpcChannels(workerId, out var inbound, out var outbound))
             {
                 _ = ListenAsync(outbound.Reader, expectedLogMsg);
-            }
-            if (_eventManager.TryGetDedicatedChannelFor<InboundGrpcEvent>(_workerId, out var inbound))
-            {
                 _inboundWriter = inbound.Writer;
             }
         }
