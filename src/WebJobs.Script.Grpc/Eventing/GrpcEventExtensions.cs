@@ -22,14 +22,14 @@ internal static class GrpcEventExtensions
     {
         SingleReader = true, // see 4
         SingleWriter = false, // see 3
-        AllowSynchronousContinuations = true,
+        AllowSynchronousContinuations = false,
     };
 
     private static readonly UnboundedChannelOptions OutboundOptions = new UnboundedChannelOptions
     {
         SingleReader = false, // see 2
         SingleWriter = false, // see 1
-        AllowSynchronousContinuations = true,
+        AllowSynchronousContinuations = false,
     };
 
     public static void AddGrpcChannels(this IScriptEventManager manager, string workerId)

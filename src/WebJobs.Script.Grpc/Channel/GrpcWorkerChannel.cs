@@ -328,8 +328,11 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                 // can be used.
                 initRequest.Capabilities.Add(RpcWorkerConstants.FunctionDataCache, "true");
             }
-            // advertise that we support multiple streams, and hint at a number
-            initRequest.Capabilities.Add(RpcWorkerConstants.MultiStream, "5");
+
+            // advertise that we support multiple streams, and hint at a number; with this flag, we allow
+            // clients to connect multiple back-hauls *with the same workerid*, and rely on the internal
+            // plumbing to make sure we don't process everything N times
+            initRequest.Capabilities.Add(RpcWorkerConstants.MultiStream, "10"); // TODO: make this configurable
 
             SendStreamingMessage(new StreamingMessage
             {

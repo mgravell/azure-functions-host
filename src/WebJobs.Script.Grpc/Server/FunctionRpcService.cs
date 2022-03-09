@@ -2,10 +2,7 @@
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
-using System.Collections.Generic;
-using System.Reactive.Concurrency;
 using System.Reactive.Linq;
-using System.Runtime.Intrinsics.Arm;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -13,7 +10,6 @@ using Grpc.Core;
 using Microsoft.Azure.WebJobs.Script.Eventing;
 using Microsoft.Azure.WebJobs.Script.Grpc.Eventing;
 using Microsoft.Azure.WebJobs.Script.Grpc.Messages;
-using Microsoft.Azure.WebJobs.Script.Workers.Http;
 using Microsoft.Extensions.Logging;
 
 using MsgType = Microsoft.Azure.WebJobs.Script.Grpc.Messages.StreamingMessage.ContentOneofCase;
@@ -54,30 +50,27 @@ namespace Microsoft.Azure.WebJobs.Script.Grpc
                     if (currentMessage.ContentCase == MsgType.StartStream)
                     {
                         var workerId = currentMessage.StartStream?.WorkerId;
-                        if (!string.IsNullOrEmpty(workerId))
+                        if (!string.IsNullOrEmpty(workerId) && _eventManager.TryGetGrpcChannels(workerId, out var inbound, out var outbound))
                         {
-                            if (_eventManager.TryGetGrpcChannels(workerId, out var inbound, out var outbound))
-                            {
-                                // send work
-                                _ = PushFromOutboundToGrpc(workerId, responseStream, outbound.Reader, cts.Token);
+                            // send work
+                            _ = PushFromOutboundToGrpc(workerId, responseStream, outbound.Reader, cts.Token);
 
-                                // this loop is "pull from gRPC and push to inbound"
-                                do
+                            // this loop is "pull from gRPC and push to inbound"
+                            do
+                            {
+                                currentMessage = requestStream.Current;
+                                if (currentMessage.ContentCase == MsgType.InvocationResponse && !string.IsNullOrEmpty(currentMessage.InvocationResponse?.InvocationId))
                                 {
-                                    currentMessage = requestStream.Current;
-                                    if (currentMessage.ContentCase == MsgType.InvocationResponse && !string.IsNullOrEmpty(currentMessage.InvocationResponse?.InvocationId))
-                                    {
-                                        _logger.LogTrace("Received invocation response for invocationId: {invocationId} from workerId: {workerId}", currentMessage.InvocationResponse.InvocationId, workerId);
-                                    }
-                                    var newInbound = new InboundGrpcEvent(workerId, currentMessage);
-                                    if (!inbound.Writer.TryWrite(newInbound))
-                                    {
-                                        await inbound.Writer.WriteAsync(newInbound);
-                                    }
-                                    currentMessage = null; // allow old messages to be collected while we wait
+                                    _logger.LogTrace("Received invocation response for invocationId: {invocationId} from workerId: {workerId}", currentMessage.InvocationResponse.InvocationId, workerId);
                                 }
-                                while (await await MoveNextAsync(requestStream, cancelSource));
+                                var newInbound = new InboundGrpcEvent(workerId, currentMessage);
+                                if (!inbound.Writer.TryWrite(newInbound))
+                                {
+                                    await inbound.Writer.WriteAsync(newInbound);
+                                }
+                                currentMessage = null; // allow old messages to be collected while we wait
                             }
+                            while (await await MoveNextAsync(requestStream, cancelSource));
                         }
                     }
                 }
