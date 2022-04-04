@@ -11,7 +11,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Azure.WebJobs.Script.Grpc;
 using Microsoft.Azure.WebJobs.Script.Grpc.Messages;
 using Microsoft.Azure.WebJobs.Script.Workers.Rpc;
-using System.Linq;
 
 namespace Microsoft.Azure.WebJobs.Script.Benchmarks
 {
@@ -31,61 +30,33 @@ namespace Microsoft.Azure.WebJobs.Script.Benchmarks
         // public static HttpRequest _httpRequest;
 
         [Benchmark]
-        public Task ToRpc_Null() => InvokeToRpc((object)null);
-        [Benchmark]
-        public Task ToRpc_Null2() => InvokeToRpc2((string)null);
+        public Task ToRpc_Null() => InvokeToRpc(((object)null));
 
         [Benchmark]
         public Task ToRpc_ByteArray() => InvokeToRpc(_byteArray);
 
         [Benchmark]
-        public Task ToRpc_ByteArray2() => InvokeToRpc2(_byteArray);
-
-        [Benchmark]
         public Task ToRpc_String() => InvokeToRpc(_str);
-        [Benchmark]
-        public Task ToRpc_String2() => InvokeToRpc2(_str);
 
         [Benchmark]
         public Task ToRpc_Double() => InvokeToRpc(_dbl);
-        [Benchmark]
-        public Task ToRpc_Double2() => InvokeToRpc2(_dbl);
 
         [Benchmark]
         public Task ToRpc_ByteJaggedArray() => InvokeToRpc(_byteJaggedArray);
-        [Benchmark]
-        public Task ToRpc_ByteJaggedArray2() => InvokeToRpc2(_byteJaggedArray);
 
         [Benchmark]
         public Task ToRpc_StringArray() => InvokeToRpc(_strArray);
-        [Benchmark]
-        public Task ToRpc_StringArray2() => InvokeToRpc2(_strArray);
 
         [Benchmark]
         public Task ToRpc_DoubleArray() => InvokeToRpc(_dblArray);
-        [Benchmark]
-        public Task ToRpc_DoubleArray2() => InvokeToRpc2(_dblArray);
 
         [Benchmark]
         public Task ToRpc_LongArray() => InvokeToRpc(_longArray);
-        [Benchmark]
-        public Task ToRpc_LongArray2() => InvokeToRpc2(_longArray);
 
         [Benchmark]
         public Task ToRpc_JObject() => InvokeToRpc(_jObj);
-        [Benchmark]
-        public Task ToRpc_JObject2() => InvokeToRpc2(_jObj);
 
-        public Task InvokeToRpc(object obj) => obj.ToRpc(NullLogger.Instance, grpcCapabilities).AsTask();
-
-        public Task InvokeToRpc2(byte[] value) => value.ToRpc2(NullLogger.Instance, grpcCapabilities).AsTask();
-        public Task InvokeToRpc2(string value) => value.ToRpc2(NullLogger.Instance, grpcCapabilities).AsTask();
-        public Task InvokeToRpc2(double value) => value.ToRpc2(NullLogger.Instance, grpcCapabilities).AsTask();
-        public Task InvokeToRpc2(string[] value) => value.ToRpc2(NullLogger.Instance, grpcCapabilities).AsTask();
-        public Task InvokeToRpc2(double[] value) => value.ToRpc2(NullLogger.Instance, grpcCapabilities).AsTask();
-        public Task InvokeToRpc2(long[] value) => value.ToRpc2(NullLogger.Instance, grpcCapabilities).AsTask();
-        public Task InvokeToRpc2(JObject value) => value.ToRpc2(NullLogger.Instance, grpcCapabilities).AsTask();
-        public Task InvokeToRpc2(byte[][] value) => value.ToRpc2(NullLogger.Instance, grpcCapabilities).AsTask();
+        public async Task InvokeToRpc(object obj) => await obj.ToRpc(NullLogger.Instance, grpcCapabilities);
 
         [GlobalSetup]
         public void Setup()
@@ -96,25 +67,5 @@ namespace Microsoft.Azure.WebJobs.Script.Benchmarks
             };
             grpcCapabilities.UpdateCapabilities(addedCapabilities);
         }
-    }
-
-    static class PbNetExtensions
-    {
-        public static ValueTask<Grpc.Messages2.TypedData> ToRpc2(this byte[] value, ILogger logger, GrpcCapabilities capabilities)
-            => new(value is null ? new Grpc.Messages2.TypedData() : new Grpc.Messages2.TypedData { Bytes = value });
-        public static ValueTask<Grpc.Messages2.TypedData> ToRpc2(this double value, ILogger logger, GrpcCapabilities capabilities)
-            => new(new Grpc.Messages2.TypedData { Double = value });
-        public static ValueTask<Grpc.Messages2.TypedData> ToRpc2(this string value, ILogger logger, GrpcCapabilities capabilities)
-            => new(value is null ? new Grpc.Messages2.TypedData() : new Grpc.Messages2.TypedData { String = value });
-        public static ValueTask<Grpc.Messages2.TypedData> ToRpc2(this JObject value, ILogger logger, GrpcCapabilities capabilities)
-            => new(value is null ? new Grpc.Messages2.TypedData() : new Grpc.Messages2.TypedData { Json = value.ToString(Formatting.None) });
-        public static ValueTask<Grpc.Messages2.TypedData> ToRpc2(this string[] value, ILogger logger, GrpcCapabilities capabilities)
-            => new(value is null ? new Grpc.Messages2.TypedData() : new Grpc.Messages2.TypedData { CollectionString = new Grpc.Messages2.CollectionString { Strings = value } });
-        public static ValueTask<Grpc.Messages2.TypedData> ToRpc2(this double[] value, ILogger logger, GrpcCapabilities capabilities)
-            => new(value is null ? new Grpc.Messages2.TypedData() : new Grpc.Messages2.TypedData { CollectionDouble = new Grpc.Messages2.CollectionDouble { Doubles = value } });
-        public static ValueTask<Grpc.Messages2.TypedData> ToRpc2(this long[] value, ILogger logger, GrpcCapabilities capabilities)
-            => new(value is null ? new Grpc.Messages2.TypedData() : new Grpc.Messages2.TypedData { CollectionSint64 = new Grpc.Messages2.CollectionSInt64 { Sint64s = value } });
-        public static ValueTask<Grpc.Messages2.TypedData> ToRpc2(this byte[][] value, ILogger logger, GrpcCapabilities capabilities)
-            => new(value is null ? new Grpc.Messages2.TypedData() : new Grpc.Messages2.TypedData { CollectionBytes = new Grpc.Messages2.CollectionBytes { Bytes = value } });
     }
 }

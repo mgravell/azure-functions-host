@@ -8,24 +8,8 @@
     <LangVersion>Latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <None Remove="pb-net\FunctionRpc.proto" />
-    <None Remove="pb-net\identity\ClaimsIdentityRpc.proto" />
-    <None Remove="pb-net\shared\NullableTypes.proto" />
-  </ItemGroup>
-  <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.13.1" />
     <ProjectReference Include="../../src/WebJobs.Script/WebJobs.Script.csproj" />
     <ProjectReference Include="../../src/WebJobs.Script.WebHost/WebJobs.Script.WebHost.csproj" />
-    <PackageReference Include="protobuf-net.BuildTools" Version="3.0.115" PrivateAssets="all" IncludeAssets="runtime;build;native;contentfiles;analyzers;buildtransitive" />
-    <PackageReference Include="protobuf-net" Version="3.0.125" />
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="pb-net\identity\" />
-    <Folder Include="pb-net\shared\" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="pb-net\FunctionRpc.proto" OneOf="enum" Package="pbnet" />
-    <AdditionalFiles Include="pb-net\identity\ClaimsIdentityRpc.proto" OneOf="enum" Package="pbnet" ImportPaths="../" />
-    <AdditionalFiles Include="pb-net\shared\NullableTypes.proto" OneOf="enum" Package="pbnet" ImportPaths="../" />
   </ItemGroup>
 </Project>
